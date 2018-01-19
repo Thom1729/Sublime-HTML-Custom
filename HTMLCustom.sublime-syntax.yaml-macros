@@ -1,0 +1,258 @@
+%YAML 1.2
+%TAG ! tag:yaml-macros:macros:
+---
+name: HTML Custom
+file_extensions:
+  - html
+  - htm
+  - shtml
+  - xhtml
+  - inc
+  - tmpl
+  - tpl
+first_line_match: (?i)<(!DOCTYPE\s*)?html
+scope: text.html
+
+variables:
+  unquoted_attribute_value: (?:[^\s<>/''"]|/(?!>))+
+  not_equals_lookahead: (?=\s*[^\s=])
+
+  attribute_name: (?:[^\s"'>/=]+)
+
+contexts:
+  main:
+    - include: comments
+    - include: doctype
+    - include: tag-html
+
+  normal:
+    - include: comments
+    - include: known-tag
+    - include: unknown-tag
+    - include: entities
+
+  immediately-pop:
+    - match: ''
+      pop: true
+
+  else-pop:
+    - match: (?=\S)
+      pop: true
+
+  tag-end:
+    - match: '(/)?>'
+      scope: punctuation.definition.tag.end.html
+      captures:
+        1: invalid.illegal
+      pop: true
+
+  tag-end-void:
+    - match: '/?>'
+      scope: punctuation.definition.tag.end.html
+      pop: true
+
+  comments:
+    - match: <!--
+      scope: punctuation.definition.comment.begin.html
+      push:
+        - meta_scope: comment.block.html
+        - match: (-*)--\s*>
+          scope: punctuation.definition.comment.end.html
+          captures:
+            1: invalid.illegal.bad-comment.html
+          pop: true
+        - match: -{2,}
+          scope: invalid.illegal.bad-comment.html
+
+  entities:
+    - match: (&#[xX])(\h+)(;)
+      scope: constant.character.entity.hexadecimal.html
+      captures:
+        1: punctuation.definition.entity.html
+        3: punctuation.definition.entity.html
+    - match: (&#)([0-9]+)(;)
+      scope: constant.character.entity.decimal.html
+      captures:
+        1: punctuation.definition.entity.html
+        3: punctuation.definition.entity.html
+    - match: (&)([a-zA-Z0-9]+)(;)
+      scope: constant.character.entity.named.html
+      captures:
+        1: punctuation.definition.entity.html
+        3: punctuation.definition.entity.html
+
+  doctype:
+    - match: (?i)(<!)(DOCTYPE)
+      captures:
+        1: punctuation.definition.tag.begin.html
+        2: entity.name.tag.html
+      push:
+        - match: '>'
+          scope: punctuation.definition.tag.end.html
+          pop: true
+
+  unknown-tag:
+    - match: (<)(\w+)
+      captures:
+        1: punctuation.definition.tag.begin.html
+        2: entity.name.tag.html invalid.illegal
+      push:
+        - - include: tag-end
+          - include: attributes
+
+    - match: (</)(\w+)
+      captures:
+        1: punctuation.definition.tag.begin.html
+        2: entity.name.tag.html invalid.illegal
+      push:
+        - match: '>'
+          scope: punctuation.definition.tag.end.html
+          pop: true
+
+  attributes:
+    - match: '{{attribute_name}}'
+      scope: entity.other.attribute-name.html
+      push: expect-attribute-value
+
+  expect-attribute-value:
+    - match: =
+      scope: punctuation.separator.key-value.html
+      set: attribute-value
+
+    - match: '{{not_equals_lookahead}}'
+      pop: true
+
+  attribute-value:
+    - match: '"'
+      scope: punctuation.definition.string.begin.html
+      set:
+        - meta_scope: string.quoted.double.html
+        - match: '"'
+          scope: punctuation.definition.string.end.html
+          pop: true
+        - include: entities
+    - match: "'"
+      scope: punctuation.definition.string.begin.html
+      set:
+        - meta_scope: string.quoted.single.html
+        - match: "'"
+          scope: punctuation.definition.string.end.html
+          pop: true
+        - include: entities
+    - match: '{{unquoted_attribute_value}}'
+      scope: string.unquoted.html
+    - include: else-pop
+
+  known-tag:
+    - !open_tag
+      name: style
+      push: style-tag-css
+
+    - !tag
+      name: title
+      contents: entities
+
+    - !void_tag meta
+    - !void_tag link
+
+    - !tag div
+
+  tag-html:
+    - !tag
+      name: html
+      contents: html-contents
+      meta_scope: meta.element.document.html
+    - match: (?=\S)
+      push:
+        - !close_tag html
+        - include: html-contents
+
+  html-contents:
+    - include: tag-head
+    - include: tag-body
+
+  tag-head:
+    - !open_tag
+      name: head
+      push:
+        - !meta meta.element.head.html
+        - - !close_tag 'head'
+          - include: head-contents
+        - - include: tag-end
+          - include: attributes
+
+  head-contents:
+    - !close_tag 'head'
+    - !break_on_tag body|/html
+    - include: normal
+
+  tag-body:
+    - !open_tag
+      name: body
+      push:
+        - !meta meta.element.body.html
+        - - !close_tag 'body'
+          - include: body-contents
+        - - include: tag-end
+          - include: attributes
+
+  body-contents:
+    - !break_on_tag /html
+    - include: normal
+
+  style-tag-other:
+    - match: '>'
+      scope: punctuation.definition.tag.end.html
+      set:
+        - match: (?i)(</)(style)
+          captures:
+            1: punctuation.definition.tag.begin.html
+            2: entity.name.tag.html
+          set:
+            - match: '>'
+              scope: punctuation.definition.tag.end.html
+              pop: true
+
+    - include: style-tag-attributes
+
+  style-tag-css:
+    - match: '>'
+      scope: punctuation.definition.tag.end.html
+      set:
+        - meta_content_scope: source.css.embedded.html
+        - match: (?i)(</)(style)
+          captures:
+            1: punctuation.definition.tag.begin.html
+            2: entity.name.tag.html
+          set:
+            - match: '>'
+              scope: punctuation.definition.tag.end.html
+              pop: true
+        - match: ''
+          embed: scope:source.css
+          escape: (?i)(?=</style)
+
+    - include: style-tag-attributes
+
+  style-tag-attributes:
+    - match: (?i)type(?!{{attribute_name}})
+      scope: entity.other.attribute-name.html
+      set:
+        - match: '='
+          scope: punctuation.separator.key-value.html
+          set: style-tag-language-decider
+
+        - match: '{{not_equals_lookahead}}'
+          set: style-tag-other
+
+    - include: attributes
+
+  style-tag-language-decider:
+    - match: (?=text/css(?!{{unquoted_attribute_value}})|'text/css'|"text/css")
+      set:
+        - style-tag-css
+        - attribute-value
+    - match: (?=\S)
+      set:
+        - style-tag-other
+        - attribute-value
